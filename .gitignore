@@ -1,0 +1,11 @@
+node_modules/
+.wrangler/
+.dev.vars
+wrangler.jsonc
+wrangler.jsonc.bak
+*.bak
+worker-configuration.d.ts
+dist/
+coverage/
+*.log
+.DS_Store

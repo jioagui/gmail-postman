@@ -1,0 +1,13 @@
+# 仅本地 wrangler dev 生效（.dev.vars 已加入 .gitignore，不会提交或部署到线上）
+# 线上默认使用 wrangler.jsonc 中的 AUTH_MODE="access"（强制 Cloudflare Access 零信任）
+AUTH_MODE=password
+
+# 若要在本地测试 Cloudflare Access 模式，可改为：
+# AUTH_MODE=access
+# ACCESS_TEAM_DOMAIN=https://your-team.cloudflareaccess.com
+# ACCESS_POLICY_AUD=your-application-aud-tag
+# ACCESS_ALLOWED_EMAILS=owner@example.com
+
+# 可选：自定义 Cookie 签名密钥（仅 password / access+password 模式使用）
+# 正式部署建议使用: npx wrangler secret put SESSION_SECRET
+# SESSION_SECRET=replace-with-a-random-32-byte-hex-string

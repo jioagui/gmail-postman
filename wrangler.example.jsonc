@@ -1,0 +1,57 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gmail-postman",
+  "main": "src/index.ts",
+  "workers_dev": false,
+  "compatibility_date": "2026-11-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.01
+    }
+  },
+  "vars": {
+    "MAIL_DOMAIN": "example.com",
+    "GMAIL_ALIAS_PREFIX": "gmail",
+    "APP_TITLE": "Gmail 助手",
+    // 认证模式：
+    // - "access"（线上推荐，默认 Fail-Closed）：强制校验 Cloudflare Access RS256 JWT，关闭公网密码与初始化入口
+    // - "access+password"：Cloudflare Access + 应用密码双重认证
+    // - "password"：仅用于本地 wrangler dev 调试（通过 gitignored 的 .dev.vars 覆盖）
+    "AUTH_MODE": "access",
+    "ACCESS_TEAM_DOMAIN": "https://your-team.cloudflareaccess.com",
+    "ACCESS_POLICY_AUD": "replace-with-your-access-application-aud",
+    "ACCESS_ALLOWED_EMAILS": "owner@example.com"
+  },
+  "routes": [
+    {
+      "pattern": "mail.example.com",
+      "custom_domain": true
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "gmail-postman-db",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations"
+    }
+  ],
+  // 可选 R2 存储桶：当前账户未开通 R2 时默认使用纯 D1 存小附件（<= 1MB）
+  // 未来在 Cloudflare Dashboard 开通 R2 后，取消下面注释并创建同名存储桶即可支持最大 10MB 附件：
+  // "r2_buckets": [
+  //   {
+  //     "binding": "ATTACHMENTS_BUCKET",
+  //     "bucket_name": "gmail-postman-attachments"
+  //   }
+  // ],
+  "triggers": {
+    "crons": ["0 3 * * *"]
+  }
+}
