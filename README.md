@@ -98,9 +98,14 @@ ALLOW_EMAIL="owner@example.com"                                 # ⬅️ 【需�
 node scripts/deploy.mjs --non-interactive --worker-name gmail-postman --domain "$DOMAIN" --web-host "$WEB_HOST" --gmail-prefix gmail --app-title "Gmail 助手" --auth-mode access --access-team-domain "$ACCESS_TEAM" --access-aud "$ACCESS_AUD" --allowed-emails "$ALLOW_EMAIL"
 ```
 
-> **提示**：
-> - 脚本已内置 `NODE_OPTIONS=--dns-result-order=ipv4first` 自动规避 IPv6 连接超时，且未登录时会自动引导 `wrangler login --no-use-keyring --device` 设备码登录；
-> - 查看全部参数：`node scripts/deploy.mjs --help`。
+> **Tips（执行环境 & 额外需手动完成的 3 项网页配置）**：
+> - **在哪里运行**：以上命令全部在**你本地电脑的 PowerShell / Terminal** 中执行（不是粘贴到 Cloudflare 网页端 Worker 编辑器）。脚本会自动完成 D1 建库与迁移、Worker 编译部署及自定义域名绑定。
+> - **手动配置 1 — Cloudflare Access 零信任应用（必须）**：Wrangler 无法自动创建 Zero Trust 应用。请登录 Zero Trust 后台：先在 **Access → Policies** 创建放行你外部邮箱（如 `owner@example.com`，勿用转发域名邮箱自身）的**可复用策略**，再在 **Access → Applications** 新建 Self-hosted 应用保护 `mail.你的域名` 并复制 **AUD Tag**。*(推荐在跑向导前就先建好并填入 AUD，跑完即可直接登录；若后补，把 AUD 写入本地 `wrangler.jsonc` 后重跑一次 `npm run deploy`。)*
+> - **手动配置 2 — Email Routing Catch-all 路由（必须）**：进入 Cloudflare 后台你的域名 → **Email → Email Routing → Routing rules → Catch-all address**，开启 Catch-all 并将 Action 选为 **Send to a Worker → `gmail-postman`**（配置一次后，后续在网页端新增任意自定义前缀都即刻生效）。
+> - **手动配置 3 — Gmail 后台开启自动转发（必须）**：打开 Gmail 网页版 → **设置 → 查看所有设置 → 转发和 POP/IMAP → 添加转发地址** → 在你的收件箱点开自动高亮的确认邮件点击确认链接 → 回到 Gmail 勾选「将收到的邮件的副本转发给…」并**滚动到页面最底部点击「保存更改」**。*(测试时请用另一个非 Gmail 外部邮箱给该 Gmail 发信，避免自发自收不触发转发。)*
+> - **其他小贴士**：
+>   - 新 Cloudflare 账号若从未打开过 Workers 控制台，首次挂载 Cron 时可能遇到错误码 `10063`，在浏览器打开一次 Dashboard 的 **Workers & Pages** 页面自动初始化子域后重跑部署即可；
+>   - 脚本已内置 `NODE_OPTIONS=--dns-result-order=ipv4first` 规避 IPv6 超时，未登录时自动引导 `wrangler login --no-use-keyring --device`；查看全部参数：`node scripts/deploy.mjs --help`。
 
 ---
 
