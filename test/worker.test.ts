@@ -265,9 +265,12 @@ describe("Gmail 助手 Worker (Cloudflare Access Zero Trust + Gmail active)", ()
     const missingApi = await callFetch("/api/emails", {}, undefined, accessEnv);
     expect(missingApi.status).toBe(403);
 
-    // Mock Cloudflare Access JWKS endpoint
-    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+    // Mock Cloudflare Access JWKS endpoint (also validates real workerd RequestInit options!)
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      // Constructing a real Request inside workerd validates redirect ("manual"/"follow") & headers
+      const req = new Request(url, init);
+      expect(req.redirect).toBe("manual");
       if (url === `${teamDomain}/cdn-cgi/access/certs`) {
         return new Response(JSON.stringify({ keys: [validKey.publicJwk] }), {
           status: 200,
@@ -800,10 +803,12 @@ describe("Gmail 助手 Worker (Cloudflare Access Zero Trust + Gmail active)", ()
     expect(ntfySummary).not.toContain("gmail-postman-private-topic-99");
     expect(ntfySummary).not.toContain("tk_secret_token_abc");
 
-    // 3. Receive Gmail email and verify both WeCom and ntfy requests
+    // 3. Receive Gmail email and verify both WeCom and ntfy requests (validating real workerd RequestInit!)
     const captured: Array<{ url: string; headers: Headers; body: Record<string, unknown> }> = [];
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
       const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      const req = new Request(url, init);
+      expect(req.redirect).toBe("manual");
       captured.push({
         url,
         headers: new Headers(init?.headers),

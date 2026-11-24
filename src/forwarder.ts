@@ -288,7 +288,7 @@ export async function dispatchSingleForwardRule(
       const res = await fetch(target.toString(), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        redirect: "error",
+        redirect: "manual",
         signal: AbortSignal.timeout(OUTBOUND_FETCH_TIMEOUT_MS),
         body: JSON.stringify({
           msgtype: "markdown",
@@ -297,6 +297,9 @@ export async function dispatchSingleForwardRule(
           }
         })
       });
+      if (res.status >= 300 && res.status < 400) {
+        return { ok: false, status: res.status, error: `WeCom 重定向被拒绝 (HTTP ${res.status})` };
+      }
       if (!res.ok) {
         return { ok: false, status: res.status, error: `WeCom HTTP ${res.status}` };
       }
@@ -354,10 +357,13 @@ export async function dispatchSingleForwardRule(
       const res = await fetch(target.toString(), {
         method: "POST",
         headers,
-        redirect: "error",
+        redirect: "manual",
         signal: AbortSignal.timeout(OUTBOUND_FETCH_TIMEOUT_MS),
         body: JSON.stringify(bodyObj)
       });
+      if (res.status >= 300 && res.status < 400) {
+        return { ok: false, status: res.status, error: `ntfy 重定向被拒绝 (HTTP ${res.status})` };
+      }
       if (!res.ok) {
         return { ok: false, status: res.status, error: `ntfy HTTP ${res.status}` };
       }
@@ -377,13 +383,16 @@ export async function dispatchSingleForwardRule(
       const res = await fetch(`https://sctapi.ftqq.com/${encodeURIComponent(sendKey)}.send`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        redirect: "error",
+        redirect: "manual",
         signal: AbortSignal.timeout(OUTBOUND_FETCH_TIMEOUT_MS),
         body: JSON.stringify({
           title,
           desp: buildPlainMessage(payload)
         })
       });
+      if (res.status >= 300 && res.status < 400) {
+        return { ok: false, status: res.status, error: `Server酱 重定向被拒绝 (HTTP ${res.status})` };
+      }
       if (!res.ok) {
         return { ok: false, status: res.status, error: `Server酱 HTTP ${res.status}` };
       }
@@ -406,7 +415,7 @@ export async function dispatchSingleForwardRule(
       const res = await fetch(target.toString(), {
         method: "POST",
         headers,
-        redirect: "error",
+        redirect: "manual",
         signal: AbortSignal.timeout(OUTBOUND_FETCH_TIMEOUT_MS),
         body: JSON.stringify({
           event: payload.isVerification ? "gmail_forwarding_verification" : "email_received",
@@ -414,6 +423,9 @@ export async function dispatchSingleForwardRule(
           email: payload
         })
       });
+      if (res.status >= 300 && res.status < 400) {
+        return { ok: false, status: res.status, error: `Webhook 重定向被拒绝 (HTTP ${res.status})` };
+      }
       if (!res.ok) {
         return { ok: false, status: res.status, error: `Webhook HTTP ${res.status}` };
       }

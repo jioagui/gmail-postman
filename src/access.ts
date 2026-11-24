@@ -145,9 +145,12 @@ async function fetchAccessJwks(certsUrl: string, bypassCache = false): Promise<A
 
   const res = await fetch(certsUrl, {
     headers: { Accept: "application/json" },
-    redirect: "error",
+    redirect: "manual",
     signal: AbortSignal.timeout(JWKS_FETCH_TIMEOUT_MS)
   });
+  if (res.status >= 300 && res.status < 400) {
+    throw new Error(`Unexpected redirect from Cloudflare Access JWKS (${res.status})`);
+  }
   if (!res.ok) {
     throw new Error(`Failed to fetch Cloudflare Access JWKS (${res.status})`);
   }
