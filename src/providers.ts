@@ -98,25 +98,44 @@ export function getProviderById(id: string): ProviderDefinition | undefined {
   return PROVIDERS.find((p) => p.id === id);
 }
 
-export interface ProviderMatchResult {
-  status: "matched" | "reserved" | "unknown";
-  provider?: ProviderDefinition;
-  alias: string;
+export const CUSTOM_PREFIX_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
+export function isReservedProviderPrefix(prefix: string, env: AppEnv): ProviderDefinition | undefined {
+  const normalized = prefix.trim().toLowerCase();
+  for (const provider of PROVIDERS) {
+    if (!provider.enabled && getProviderPrefix(provider, env) === normalized) {
+      return provider;
+    }
+  }
+  return undefined;
 }
 
-/**
- * Resolves the target provider from the inbound envelope `message.to` address.
- * Supports subaddressing: `gmail+work@domain.com` -> base prefix `gmail`, alias `gmail+work`.
- */
-export function resolveInboundProvider(
-  toAddress: string,
-  env: AppEnv
-): ProviderMatchResult {
+export function extractLocalBasePrefix(toAddress: string): { localPart: string; basePrefix: string } {
   const normalized = toAddress.trim().toLowerCase();
   const atIdx = normalized.indexOf("@");
   const localPart = atIdx >= 0 ? normalized.slice(0, atIdx) : normalized;
   const plusIdx = localPart.indexOf("+");
   const basePrefix = plusIdx >= 0 ? localPart.slice(0, plusIdx) : localPart;
+  return { localPart, basePrefix };
+}
+
+export interface ProviderMatchResult {
+  status: "matched" | "reserved" | "unknown";
+  provider?: ProviderDefinition;
+  alias: string;
+  basePrefix: string;
+}
+
+/**
+ * Resolves the target provider from the inbound envelope `message.to` address.
+ * Built-in enabled prefix (`gmail`) and reserved prefixes (`qq`/`outlook`/`163`/`other`) are matched directly;
+ * additional user-configured custom Gmail prefixes are checked against D1 `gmail_aliases` in `src/email.ts`.
+ */
+export function resolveInboundProvider(
+  toAddress: string,
+  env: AppEnv
+): ProviderMatchResult {
+  const { localPart, basePrefix } = extractLocalBasePrefix(toAddress);
 
   for (const provider of PROVIDERS) {
     const expectedPrefix = getProviderPrefix(provider, env);
@@ -124,14 +143,16 @@ export function resolveInboundProvider(
       return {
         status: provider.enabled ? "matched" : "reserved",
         provider,
-        alias: localPart || expectedPrefix
+        alias: localPart || expectedPrefix,
+        basePrefix
       };
     }
   }
 
   return {
     status: "unknown",
-    alias: localPart || "unknown"
+    alias: localPart || "unknown",
+    basePrefix
   };
 }
 

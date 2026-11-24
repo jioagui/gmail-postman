@@ -100,3 +100,12 @@ export interface ForwardRuleRow {
   enabled: number;
   created_at: number;
 }
+
+export interface GmailAliasRow {
+  id: string;
+  prefix: string;
+  label: string;
+  source_email: string;
+  enabled: number;
+  created_at: number;
+}

@@ -1,5 +1,5 @@
 import { generateRandomHex } from "./security";
-import type { AppEnv, BlockRuleRow, ForwardRuleRow } from "./types";
+import type { AppEnv, BlockRuleRow, ForwardRuleRow, GmailAliasRow } from "./types";
 
 export async function getSetting(env: AppEnv, key: string): Promise<string | null> {
   const row = await env.DB.prepare("SELECT value FROM settings WHERE key = ?")
@@ -69,4 +69,21 @@ export async function listActiveForwardRules(env: AppEnv, provider: string): Pro
     .bind(provider)
     .all<ForwardRuleRow>();
   return res.results;
+}
+
+export async function listGmailAliases(env: AppEnv): Promise<GmailAliasRow[]> {
+  const res = await env.DB.prepare(
+    `SELECT * FROM gmail_aliases ORDER BY CASE WHEN id = 'default-gmail' THEN 0 ELSE 1 END, created_at ASC`
+  ).all<GmailAliasRow>();
+  return res.results;
+}
+
+export async function findGmailAliasByPrefix(
+  env: AppEnv,
+  prefix: string
+): Promise<GmailAliasRow | null> {
+  const row = await env.DB.prepare("SELECT * FROM gmail_aliases WHERE prefix = ?")
+    .bind(prefix.toLowerCase())
+    .first<GmailAliasRow>();
+  return row ?? null;
 }

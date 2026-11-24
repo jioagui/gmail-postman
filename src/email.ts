@@ -1,8 +1,9 @@
 import PostalMime from "postal-mime";
-import { listActiveBlockRules, listActiveForwardRules } from "./db";
+import { findGmailAliasByPrefix, listActiveBlockRules, listActiveForwardRules } from "./db";
 import { dispatchForwardRules } from "./forwarder";
 import {
   detectGmailForwardingVerification,
+  getProviderById,
   resolveInboundProvider
 } from "./providers";
 import { sanitizeFilename } from "./security";
@@ -165,9 +166,29 @@ export async function handleInboundEmail(
     return;
   }
 
-  if (match.status !== "matched" || !match.provider) {
+  // Check D1 custom Gmail prefixes (supports arbitrary configured prefixes like work@domain, main@domain)
+  const customAlias = match.basePrefix ? await findGmailAliasByPrefix(env, match.basePrefix) : null;
+  let activeProvider = match.status === "matched" ? match.provider : undefined;
+  let aliasLabel = "";
+
+  if (customAlias) {
+    if (!customAlias.enabled) {
+      console.log(
+        JSON.stringify({
+          message: "email_rejected_disabled_alias",
+          prefix: customAlias.prefix
+        })
+      );
+      message.setReject(`Recipient prefix "${customAlias.prefix}" is currently disabled.`);
+      return;
+    }
+    activeProvider = getProviderById("gmail");
+    aliasLabel = customAlias.label || "";
+  }
+
+  if (!activeProvider) {
     console.log(JSON.stringify({ message: "email_rejected_unknown_recipient" }));
-    message.setReject("Recipient prefix is not configured. Only Gmail forwarding is enabled.");
+    message.setReject("Recipient prefix is not configured. Add this custom prefix in Gmail 助手 first.");
     return;
   }
 
@@ -213,7 +234,7 @@ export async function handleInboundEmail(
   const authResults = message.headers.get("authentication-results") || "";
 
   const verification =
-    match.provider.id === "gmail"
+    activeProvider.id === "gmail"
       ? detectGmailForwardingVerification({
           fromAddress,
           subject,
@@ -225,7 +246,7 @@ export async function handleInboundEmail(
 
   // Evaluate local keyword block rules (verified Gmail forwarding confirmations bypass blocking)
   if (!verification.isVerification) {
-    const blockRules = await listActiveBlockRules(env, match.provider.id);
+    const blockRules = await listActiveBlockRules(env, activeProvider.id);
     const haystack = `${subject}\n${fromAddress}\n${fromName}\n${textBody}\n${snippet}`.toLowerCase();
     const matchedRule = blockRules.find(
       (r) => r.keyword.trim() !== "" && haystack.includes(r.keyword.trim().toLowerCase())
@@ -234,7 +255,7 @@ export async function handleInboundEmail(
       console.log(
         JSON.stringify({
           message: "email_blocked_by_keyword",
-          provider: match.provider.id,
+          provider: activeProvider.id,
           ruleId: matchedRule.id
         })
       );
@@ -255,7 +276,7 @@ export async function handleInboundEmail(
   )
     .bind(
       emailId,
-      match.provider.id,
+      activeProvider.id,
       match.alias.slice(0, 100),
       messageId,
       inReplyTo,
@@ -323,22 +344,23 @@ export async function handleInboundEmail(
     JSON.stringify({
       message: "email_stored",
       emailId,
-      provider: match.provider.id,
+      provider: activeProvider.id,
       attachments: parsedAttachments.length,
       isVerification: verification.isVerification
     })
   );
 
   // Dispatch WeCom / ntfy / Server酱 / Webhook notifications asynchronously via waitUntil
-  const forwardRules = await listActiveForwardRules(env, match.provider.id);
+  const forwardRules = await listActiveForwardRules(env, activeProvider.id);
   if (forwardRules.length > 0) {
     const inboxUrl = env.MAIL_DOMAIN ? `https://mail.${env.MAIL_DOMAIN.trim()}` : undefined;
     ctx.waitUntil(
       dispatchForwardRules(env, forwardRules, {
         emailId,
-        provider: match.provider.id,
-        providerName: match.provider.name,
+        provider: activeProvider.id,
+        providerName: activeProvider.name,
         accountAlias: match.alias,
+        aliasLabel,
         fromAddress,
         fromName,
         toAddress: message.to,

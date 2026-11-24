@@ -5,6 +5,7 @@ export interface ForwardNotificationPayload {
   provider: string;
   providerName: string;
   accountAlias?: string;
+  aliasLabel?: string;
   fromAddress: string;
   fromName: string;
   toAddress: string;
@@ -211,10 +212,17 @@ function escapeWeComMarkdown(text: string): string {
 }
 
 function formatProviderDisplay(payload: ForwardNotificationPayload): string {
+  const customLabel = (payload.aliasLabel || "").trim();
   const alias = (payload.accountAlias || "").trim();
+  if (customLabel && customLabel !== "默认 Gmail") {
+    return customLabel;
+  }
   const plusIdx = alias.indexOf("+");
   if (plusIdx >= 0 && plusIdx < alias.length - 1) {
     return `${payload.providerName} · ${alias.slice(plusIdx + 1)}`;
+  }
+  if (alias && alias !== "gmail") {
+    return `${payload.providerName} · ${alias}`;
   }
   return payload.providerName;
 }

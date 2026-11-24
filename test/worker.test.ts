@@ -200,6 +200,8 @@ async function resetTables() {
     env.DB.prepare("DELETE FROM block_rules"),
     env.DB.prepare("DELETE FROM forward_rules"),
     env.DB.prepare("DELETE FROM login_attempts"),
+    env.DB.prepare("DELETE FROM gmail_aliases WHERE id != 'default-gmail'"),
+    env.DB.prepare("UPDATE gmail_aliases SET enabled = 1, label = '默认 Gmail', source_email = '' WHERE id = 'default-gmail'"),
     env.DB.prepare("DELETE FROM settings WHERE key NOT IN ('auto_delete_days', 'gmail_source_email')"),
     env.DB.prepare("UPDATE settings SET value = '0' WHERE key = 'auto_delete_days'"),
     env.DB.prepare("UPDATE settings SET value = '' WHERE key = 'gmail_source_email'")
@@ -992,7 +994,7 @@ describe("Gmail 助手 Worker (Cloudflare Access Zero Trust + Gmail active)", ()
     expect((await callFetch("/api/emails", {}, newCookie, devEnv)).status).toBe(200);
   });
 
-  it("supports multiple Gmail accounts via + subaddresses with alias filtering and tagged push titles", async () => {
+  it("supports custom Gmail forwarding prefixes (work@, bank@), rejects reserved/unregistered/disabled prefixes, and tags push titles", async () => {
     const devEnv = localPasswordEnv();
     const setupRes = await callFetch(
       "/api/setup",
@@ -1005,6 +1007,74 @@ describe("Gmail 助手 Worker (Cloudflare Access Zero Trust + Gmail active)", ()
       devEnv
     );
     const cookie = extractCookie(setupRes);
+
+    // 1. Reserved provider prefixes (qq / outlook / 163) cannot be added as custom Gmail prefixes
+    const reservedCreate = await callFetch(
+      "/api/aliases",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prefix: "qq", label: "冲突" })
+      },
+      cookie,
+      devEnv
+    );
+    expect(reservedCreate.status).toBe(400);
+
+    // 2. Create custom prefixes work@example.com (with label) and bank@example.com (without label)
+    const workCreate = await callFetch(
+      "/api/aliases",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prefix: "work", label: "工作 Gmail", source_email: "work@gmail.com" })
+      },
+      cookie,
+      devEnv
+    );
+    expect(workCreate.status).toBe(201);
+    const workJson = await workCreate.json<{ id: string; forwardAddress: string }>();
+    expect(workJson.forwardAddress).toBe("work@example.com");
+
+    // Duplicate prefix rejected with 409
+    expect(
+      (
+        await callFetch(
+          "/api/aliases",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prefix: "work" })
+          },
+          cookie,
+          devEnv
+        )
+      ).status
+    ).toBe(409);
+
+    const bankCreate = await callFetch(
+      "/api/aliases",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prefix: "bank" })
+      },
+      cookie,
+      devEnv
+    );
+    expect(bankCreate.status).toBe(201);
+
+    // 3. Unregistered random prefix is rejected at SMTP time
+    const unknown = makeEmailMessage({
+      from: "spammer@evil.org",
+      to: "random999@example.com",
+      subject: "Spam",
+      text: "Not configured"
+    });
+    const ctxUnknown = createExecutionContext();
+    await worker.email(unknown.msg, devEnv, ctxUnknown);
+    await waitOnExecutionContext(ctxUnknown);
+    expect(unknown.rejected.length).toBe(1);
 
     // Add ntfy rule to verify tagged push titles
     await callFetch(
@@ -1032,11 +1102,11 @@ describe("Gmail 助手 Worker (Cloudflare Access Zero Trust + Gmail active)", ()
       return new Response(JSON.stringify({ id: "ok" }), { status: 200 });
     });
 
-    // Ingest emails to default gmail@, gmail+work@, and gmail+sub@
+    // 4. Ingest emails to default gmail@, custom work@, and custom bank@
     for (const [to, subj] of [
       ["gmail@example.com", "主号账单"],
-      ["gmail+work@example.com", "工作周报"],
-      ["gmail+sub@example.com", "小号验证码"]
+      ["work@example.com", "工作周报"],
+      ["bank@example.com", "银行账单"]
     ]) {
       const mail = makeEmailMessage({
         from: "sender@example.org",
@@ -1047,32 +1117,56 @@ describe("Gmail 助手 Worker (Cloudflare Access Zero Trust + Gmail active)", ()
       const ctx = createExecutionContext();
       await worker.email(mail.msg, devEnv, ctx);
       await waitOnExecutionContext(ctx);
+      expect(mail.rejected).toHaveLength(0);
     }
 
-    // 1. Push titles carry sub-account tag
+    // Push titles use default Gmail / custom label / prefix fallback
     expect(ntfyTitles).toContain("[Gmail] 主号账单");
-    expect(ntfyTitles).toContain("[Gmail · work] 工作周报");
-    expect(ntfyTitles).toContain("[Gmail · sub] 小号验证码");
+    expect(ntfyTitles).toContain("[工作 Gmail] 工作周报");
+    expect(ntfyTitles).toContain("[Gmail · bank] 银行账单");
 
-    // 2. /api/providers returns discovered aliases with counts
+    // 5. /api/providers returns configured custom aliases with counts
     const provData = await (await callFetch("/api/providers", {}, cookie, devEnv)).json<{
-      aliases: Array<{ alias: string; label: string; total: number; unread: number }>;
+      aliases: Array<{ alias: string; prefix: string; label: string; total: number; unread: number }>;
     }>();
-    expect(provData.aliases.map((a) => a.alias)).toEqual(["gmail", "gmail+sub", "gmail+work"]);
-    expect(provData.aliases.find((a) => a.alias === "gmail+work")?.label).toBe("+work");
+    expect(provData.aliases.map((a) => a.prefix)).toEqual(["gmail", "work", "bank"]);
+    expect(provData.aliases.find((a) => a.prefix === "work")?.label).toBe("工作 Gmail");
 
-    // 3. /api/emails filters cleanly by alias
+    // 6. /api/emails filters cleanly by custom prefix
     const workOnly = await (
-      await callFetch("/api/emails?provider=gmail&alias=" + encodeURIComponent("gmail+work"), {}, cookie, devEnv)
+      await callFetch("/api/emails?provider=gmail&alias=work", {}, cookie, devEnv)
     ).json<{ emails: Array<{ account_alias: string; subject: string }>; total: number; unreadCount: number }>();
     expect(workOnly.total).toBe(1);
     expect(workOnly.unreadCount).toBe(1);
-    expect(workOnly.emails[0].account_alias).toBe("gmail+work");
+    expect(workOnly.emails[0].account_alias).toBe("work");
     expect(workOnly.emails[0].subject).toBe("工作周报");
 
-    const allGmail = await (await callFetch("/api/emails?provider=gmail&alias=all", {}, cookie, devEnv)).json<{
-      total: number;
-    }>();
-    expect(allGmail.total).toBe(3);
+    // 7. Disabling custom prefix immediately rejects subsequent inbound emails
+    expect(
+      (
+        await callFetch(
+          `/api/aliases/${workJson.id}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ enabled: 0 })
+          },
+          cookie,
+          devEnv
+        )
+      ).status
+    ).toBe(200);
+
+    const blockedAfterDisable = makeEmailMessage({
+      from: "sender@example.org",
+      to: "work@example.com",
+      subject: "Should reject",
+      text: "Disabled prefix"
+    });
+    const ctxDisabled = createExecutionContext();
+    await worker.email(blockedAfterDisable.msg, devEnv, ctxDisabled);
+    await waitOnExecutionContext(ctxDisabled);
+    expect(blockedAfterDisable.rejected.length).toBe(1);
+    expect(blockedAfterDisable.rejected[0]).toContain("disabled");
   });
 });

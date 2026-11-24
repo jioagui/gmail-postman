@@ -2,10 +2,12 @@ import { Hono, type Context } from "hono";
 import { type AccessIdentity, verifyCloudflareAccessRequest } from "./access";
 import { runAutoCleanup } from "./cleanup";
 import {
+  findGmailAliasByPrefix,
   getSessionEpoch,
   getSessionSecret,
   getSetting,
   isInstalled,
+  listGmailAliases,
   rotateSessionEpoch,
   setSetting
 } from "./db";
@@ -15,8 +17,10 @@ import {
   normalizeAndValidateForwardConfig
 } from "./forwarder";
 import {
+  CUSTOM_PREFIX_RE,
   getProviderById,
   getProviderForwardAddress,
+  isReservedProviderPrefix,
   isValidProviderFilter,
   listProvidersWithAddress
 } from "./providers";
@@ -50,6 +54,7 @@ import { renderAccessDeniedHtml, renderAppHtml } from "./ui";
 
 const MAX_BLOCK_RULES = 200;
 const MAX_FORWARD_RULES = 20;
+const MAX_GMAIL_ALIASES = 50;
 const MAX_SEARCH_QUERY_LEN = 100;
 const MAX_PAGE_NUM = 1000;
 const CSRF_HEADER_VALUE = "GmailAssistant";
@@ -391,7 +396,7 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.get("/api/providers", async (c) => {
-  const [countsRes, aliasRes] = await Promise.all([
+  const [countsRes, aliasCountsRes, configuredAliases] = await Promise.all([
     c.env.DB.prepare("SELECT provider, COUNT(*) as cnt FROM emails GROUP BY provider").all<{
       provider: string;
       cnt: number;
@@ -402,7 +407,8 @@ app.get("/api/providers", async (c) => {
        FROM emails
        GROUP BY provider, account_alias
        ORDER BY account_alias ASC`
-    ).all<{ provider: string; account_alias: string; total: number; unread: number }>()
+    ).all<{ provider: string; account_alias: string; total: number; unread: number }>(),
+    listGmailAliases(c.env)
   ]);
 
   const countMap = new Map<string, number>();
@@ -415,21 +421,145 @@ app.get("/api/providers", async (c) => {
     count: countMap.get(p.id) ?? 0
   }));
 
-  const aliases = aliasRes.results.map((row) => {
-    const plusIdx = row.account_alias.indexOf("+");
-    const tag = plusIdx >= 0 && plusIdx < row.account_alias.length - 1 ? row.account_alias.slice(plusIdx + 1) : "";
+  const mailDomain = (c.env.MAIL_DOMAIN || "example.com").trim().toLowerCase();
+  const aliasStats = new Map<string, { total: number; unread: number }>();
+  for (const row of aliasCountsRes.results) {
+    if (row.provider === "gmail") {
+      aliasStats.set(row.account_alias.toLowerCase(), {
+        total: Number(row.total) || 0,
+        unread: Number(row.unread) || 0
+      });
+    }
+  }
+
+  const seenAliases = new Set<string>();
+  const aliases = configuredAliases.map((row) => {
+    const prefix = row.prefix.toLowerCase();
+    seenAliases.add(prefix);
+    const stats = aliasStats.get(prefix) || { total: 0, unread: 0 };
     return {
-      provider: row.provider,
-      alias: row.account_alias,
-      tag,
-      label: tag ? `+${tag}` : "默认",
-      total: Number(row.total) || 0,
-      unread: Number(row.unread) || 0
+      id: row.id,
+      provider: "gmail",
+      alias: prefix,
+      prefix,
+      forwardAddress: `${prefix}@${mailDomain}`,
+      label: row.label || prefix,
+      source_email: row.source_email || "",
+      enabled: row.enabled,
+      isDefault: row.id === "default-gmail",
+      total: stats.total,
+      unread: stats.unread
     };
   });
 
+  // Also include any historical aliases that already have stored emails (e.g., legacy gmail+tag)
+  for (const [aliasKey, stats] of aliasStats.entries()) {
+    if (!seenAliases.has(aliasKey)) {
+      aliases.push({
+        id: "",
+        provider: "gmail",
+        alias: aliasKey,
+        prefix: aliasKey,
+        forwardAddress: `${aliasKey}@${mailDomain}`,
+        label: aliasKey,
+        source_email: "",
+        enabled: 1,
+        isDefault: false,
+        total: stats.total,
+        unread: stats.unread
+      });
+    }
+  }
+
   const gmailSourceEmail = (await getSetting(c.env, "gmail_source_email")) || "";
   return c.json({ providers, aliases, gmailSourceEmail });
+});
+
+// Custom Gmail forwarding prefix CRUD
+app.post("/api/aliases", async (c) => {
+  const countRow = await c.env.DB.prepare("SELECT COUNT(*) as cnt FROM gmail_aliases").first<{ cnt: number }>();
+  if ((countRow?.cnt ?? 0) >= MAX_GMAIL_ALIASES) {
+    return c.json({ error: `自定义转发前缀已达上限（最多 ${MAX_GMAIL_ALIASES} 个）` }, 400);
+  }
+
+  const body = await readJsonBody<{ prefix: string; label: string; source_email: string }>(c);
+  const rawPrefix = asString(body.prefix).trim().toLowerCase();
+  const prefix = rawPrefix.includes("@") ? rawPrefix.slice(0, rawPrefix.indexOf("@")).trim() : rawPrefix;
+
+  if (!CUSTOM_PREFIX_RE.test(prefix)) {
+    return c.json({ error: "前缀仅支持 1-64 位小写字母、数字、点、下划线或短横线，且须以字母或数字开头" }, 400);
+  }
+
+  const reserved = isReservedProviderPrefix(prefix, c.env);
+  if (reserved) {
+    return c.json({ error: `前缀 "${prefix}" 已预留给 ${reserved.name}，请换用其他前缀` }, 400);
+  }
+
+  const existing = await findGmailAliasByPrefix(c.env, prefix);
+  if (existing) {
+    return c.json({ error: `前缀 "${prefix}" 已存在` }, 409);
+  }
+
+  const id = crypto.randomUUID();
+  const label = asString(body.label).trim().slice(0, 40);
+  const sourceEmail = asString(body.source_email).trim().slice(0, 254);
+
+  await c.env.DB.prepare(
+    `INSERT INTO gmail_aliases (id, prefix, label, source_email, enabled, created_at)
+     VALUES (?, ?, ?, ?, 1, ?)`
+  )
+    .bind(id, prefix, label, sourceEmail, Date.now())
+    .run();
+
+  const mailDomain = (c.env.MAIL_DOMAIN || "example.com").trim().toLowerCase();
+  return c.json({ ok: true, id, prefix, forwardAddress: `${prefix}@${mailDomain}` }, 201);
+});
+
+app.patch("/api/aliases/:id", async (c) => {
+  const id = c.req.param("id");
+  const body = await readJsonBody<{ enabled: number; label: string; source_email: string }>(c);
+
+  const updates: string[] = [];
+  const params: unknown[] = [];
+
+  if (body.enabled !== undefined) {
+    updates.push("enabled = ?");
+    params.push(body.enabled ? 1 : 0);
+  }
+  if (body.label !== undefined) {
+    updates.push("label = ?");
+    params.push(asString(body.label).trim().slice(0, 40));
+  }
+  if (body.source_email !== undefined) {
+    updates.push("source_email = ?");
+    params.push(asString(body.source_email).trim().slice(0, 254));
+  }
+
+  if (updates.length === 0) {
+    return c.json({ error: "未提供需要更新的字段" }, 400);
+  }
+
+  params.push(id);
+  const res = await c.env.DB.prepare(`UPDATE gmail_aliases SET ${updates.join(", ")} WHERE id = ?`)
+    .bind(...params)
+    .run();
+
+  if ((res.meta?.changes ?? 0) === 0) {
+    return c.json({ error: "前缀地址不存在" }, 404);
+  }
+  return c.json({ ok: true });
+});
+
+app.delete("/api/aliases/:id", async (c) => {
+  const id = c.req.param("id");
+  if (id === "default-gmail") {
+    return c.json({ error: "默认前缀不可删除，如不需要可点击停用" }, 400);
+  }
+  const res = await c.env.DB.prepare("DELETE FROM gmail_aliases WHERE id = ?").bind(id).run();
+  if ((res.meta?.changes ?? 0) === 0) {
+    return c.json({ error: "前缀地址不存在" }, 404);
+  }
+  return c.json({ ok: true });
 });
 
 app.get("/api/emails", async (c) => {
