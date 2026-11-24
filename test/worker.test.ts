@@ -910,6 +910,10 @@ describe("Gmail 助手 Worker (Cloudflare Access Zero Trust + Gmail active)", ()
     const htmlBody = await htmlRes.text();
     expect(htmlBody).not.toMatch(/\sonclick=/i);
     expect(htmlBody).not.toMatch(/\sonchange=/i);
+    expect(htmlBody).toContain("viewport-fit=cover");
+    expect(htmlBody).toContain("mobile-bottom-nav");
+    expect(htmlBody).toContain("mobile-back-bar");
+    expect(htmlBody).toContain("mobile-filter-pills");
 
     // 3. SSRF filters reject IPv6 loopback, IPv4-mapped IPv6, metadata IP, plaintext HTTP, and arbitrary WeCom host
     const badConfigs = [

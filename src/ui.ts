@@ -13,11 +13,11 @@ export function renderAccessDeniedHtml(appTitle: string, reason: string): string
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>访问受限 · ${safeTitle}</title>
   <style>
     body {
-      margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      margin: 0; min-height: 100dvh; display: flex; align-items: center; justify-content: center;
       background: #0d1117; color: #e6edf3; padding: 20px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", sans-serif;
     }
@@ -46,12 +46,14 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
 <html lang="zh-CN" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d1117" />
   <title>${safeTitle}</title>
   <style>
     :root {
       --bg: #0d1117;
       --bg-elev: #161b22;
+      --bg-glass: rgba(22, 27, 34, 0.88);
       --bg-hover: #1f2630;
       --border: #30363d;
       --text: #e6edf3;
@@ -63,10 +65,13 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       --success: #3fb950;
       --warn: #d29922;
       --radius: 10px;
+      --safe-top: env(safe-area-inset-top, 0px);
+      --safe-bottom: env(safe-area-inset-bottom, 0px);
     }
     [data-theme="light"] {
       --bg: #f6f8fa;
       --bg-elev: #ffffff;
+      --bg-glass: rgba(255, 255, 255, 0.9);
       --bg-hover: #eef2f6;
       --border: #d0d7de;
       --text: #1f2328;
@@ -74,7 +79,7 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       --accent: #2563eb;
       --accent-soft: rgba(37, 99, 235, 0.1);
     }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
       background: var(--bg);
@@ -89,7 +94,7 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       background: var(--bg-elev);
       border-radius: 8px;
       padding: 7px 12px;
-      transition: background 0.15s, border-color 0.15s;
+      transition: background 0.15s, border-color 0.15s, transform 0.1s;
     }
     button:hover { background: var(--bg-hover); }
     button.primary {
@@ -130,6 +135,8 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
     .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
     .msg-err { color: var(--danger); font-size: 13px; margin-top: 8px; }
     .msg-ok { color: var(--success); font-size: 13px; margin-top: 8px; }
+
+    /* ==================== Desktop Layout (> 960px, preserved intact) ==================== */
     .layout {
       display: grid;
       grid-template-columns: 240px 360px 1fr;
@@ -151,6 +158,7 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       font-weight: 700;
       font-size: 16px;
     }
+    .drawer-close-btn { display: none; }
     .nav-group-title {
       font-size: 11px;
       text-transform: uppercase;
@@ -196,6 +204,10 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       gap: 8px;
       background: var(--bg-elev);
     }
+    .list-toolbar button {
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
     .mail-list { flex: 1; overflow-y: auto; }
     .mail-item {
       padding: 12px 14px;
@@ -208,6 +220,7 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
     .mail-item:hover { background: var(--bg-hover); }
     .mail-item.active { background: var(--accent-soft); }
     .mail-item.unread .mail-subject { font-weight: 700; color: var(--text); }
+    .mail-item-content { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
     .mail-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
     .mail-from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
     .mail-subject { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
@@ -288,21 +301,466 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       border-bottom: 1px solid var(--border);
     }
     .rule-row:last-child { border-bottom: none; }
-    .mobile-bar {
-      display: none;
-      padding: 10px 12px;
-      border-bottom: 1px solid var(--border);
-      background: var(--bg-elev);
-      justify-content: space-between;
-      align-items: center;
+
+    .mobile-detail-body {
+      display: contents;
     }
+
+    /* Mobile-only chrome hidden completely on desktop */
+    .mobile-bar,
+    .mobile-drawer-backdrop,
+    .mobile-filter-pills,
+    .mobile-back-bar,
+    .mobile-bottom-nav,
+    .mail-avatar,
+    .mail-unread-dot {
+      display: none;
+    }
+
+    /* Avatar palette for mobile cards */
+    .av-0 { background: linear-gradient(135deg, #3b82f6, #1d4ed8); }
+    .av-1 { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+    .av-2 { background: linear-gradient(135deg, #10b981, #047857); }
+    .av-3 { background: linear-gradient(135deg, #f59e0b, #b45309); }
+    .av-4 { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+    .av-5 { background: linear-gradient(135deg, #ec4899, #be185d); }
+
+    /* ==================== Dedicated Mobile App UI (<= 960px) ==================== */
     @media (max-width: 960px) {
-      .layout { grid-template-columns: 1fr; height: auto; min-height: 100vh; }
-      .mobile-bar { display: flex; }
-      .sidebar { display: none; border-right: none; border-bottom: 1px solid var(--border); }
-      .sidebar.open { display: flex; }
-      .list-pane { border-right: none; max-height: 45vh; }
+      body {
+        min-height: 100dvh;
+        overscroll-behavior-y: none;
+      }
+      input, select, textarea {
+        font-size: 16px; /* Prevents iOS Safari auto-zoom on focus */
+        padding: 10px 12px;
+        border-radius: 10px;
+      }
+      button {
+        min-height: 40px;
+        border-radius: 10px;
+        padding: 8px 14px;
+      }
+      button:active { transform: scale(0.97); }
+      .auth-wrap {
+        min-height: 100dvh;
+        padding: calc(20px + var(--safe-top)) 16px calc(24px + var(--safe-bottom));
+      }
+      .auth-card {
+        padding: 24px 20px;
+        border-radius: 18px;
+      }
+
+      /* App Shell: full dynamic viewport height, single active view */
+      .layout {
+        display: flex;
+        flex-direction: column;
+        height: 100dvh;
+        min-height: 100dvh;
+        overflow: hidden;
+      }
+
+      /* Sticky Glass Top Header */
+      .mobile-bar {
+        display: flex;
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        padding: calc(10px + var(--safe-top)) 14px 10px;
+        background: var(--bg-glass);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--border);
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        flex-shrink: 0;
+      }
+      .layout[data-view="inbox"][data-mobile-screen="detail"] .mobile-bar {
+        display: none;
+      }
+      .mobile-bar-left {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+      .mobile-title-wrap {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+      }
+      .mobile-title {
+        font-size: 16px;
+        font-weight: 700;
+        line-height: 1.2;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .mobile-subtitle {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.25;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .icon-btn {
+        min-width: 38px;
+        min-height: 38px;
+        padding: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 10px;
+        font-size: 16px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        flex-shrink: 0;
+      }
+
+      /* Slide-Over Navigation Drawer + Blurred Backdrop */
+      .mobile-drawer-backdrop {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.56);
+        backdrop-filter: blur(3px);
+        -webkit-backdrop-filter: blur(3px);
+        z-index: 50;
+      }
+      .mobile-drawer-backdrop.open { display: block; }
+      .sidebar {
+        display: flex;
+        position: fixed;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        width: min(82vw, 300px);
+        z-index: 60;
+        padding: calc(16px + var(--safe-top)) 16px calc(20px + var(--safe-bottom));
+        border-right: 1px solid var(--border);
+        box-shadow: 12px 0 32px rgba(0, 0, 0, 0.35);
+        transform: translateX(-105%);
+        transition: transform 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      .sidebar.open { transform: translateX(0); }
+      .drawer-close-btn {
+        display: inline-flex;
+        min-width: 34px;
+        min-height: 34px;
+        padding: 0;
+        align-items: center;
+        justify-content: center;
+        border-radius: 8px;
+      }
+      .sidebar .brand button[data-action="toggle-theme"] { display: none; }
+      .sidebar .nav-item {
+        padding: 11px 12px;
+        font-size: 15px;
+        border-radius: 10px;
+      }
+
+      /* Single-Pane Visibility Rules */
+      .list-pane {
+        border-right: none;
+        flex: 1;
+        min-height: 0;
+        background: var(--bg);
+      }
+      .main-pane {
+        flex: 1;
+        min-height: 0;
+        padding: 14px 14px calc(82px + var(--safe-bottom));
+        -webkit-overflow-scrolling: touch;
+      }
+      .layout[data-view="inbox"][data-mobile-screen="list"] .main-pane { display: none; }
+      .layout[data-view="inbox"][data-mobile-screen="detail"] .list-pane { display: none; }
+      .layout[data-view="inbox"][data-mobile-screen="detail"] .main-pane {
+        padding: 0 0 calc(20px + var(--safe-bottom));
+      }
+      .layout:not([data-view="inbox"]) .list-pane { display: none; }
+
+      /* Mobile Search & Filter Pills */
+      .list-toolbar {
+        padding: 10px 14px 8px;
+        border-bottom: none;
+        background: var(--bg);
+        gap: 8px;
+      }
+      .list-toolbar input {
+        border-radius: 999px;
+        padding: 9px 14px;
+        background: var(--bg-elev);
+        font-size: 15px;
+      }
+      .list-toolbar button {
+        border-radius: 999px;
+        padding: 0 14px;
+        white-space: nowrap;
+        font-size: 13px;
+      }
+      .mobile-filter-pills {
+        display: flex;
+        gap: 8px;
+        padding: 2px 14px 10px;
+        overflow-x: auto;
+        scrollbar-width: none;
+        border-bottom: 1px solid var(--border);
+        background: var(--bg);
+        flex-shrink: 0;
+      }
+      .mobile-filter-pills::-webkit-scrollbar { display: none; }
+      .filter-pill {
+        min-height: 32px;
+        padding: 5px 12px;
+        border-radius: 999px;
+        font-size: 13px;
+        white-space: nowrap;
+        background: var(--bg-elev);
+        border: 1px solid var(--border);
+        color: var(--muted);
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+      }
+      .filter-pill.active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: #fff;
+        font-weight: 600;
+      }
+
+      /* Native-Style Mobile Mail List Cards */
+      .mail-list {
+        padding: 8px 12px calc(84px + var(--safe-bottom));
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        -webkit-overflow-scrolling: touch;
+      }
+      .mail-item {
+        flex-direction: row;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 13px 14px;
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        background: var(--bg-elev);
+        position: relative;
+      }
+      .mail-item:active { background: var(--bg-hover); }
+      .mail-item.unread {
+        border-color: rgba(59, 130, 246, 0.45);
+      }
+      .mail-avatar {
+        display: flex;
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        font-weight: 700;
+        font-size: 15px;
+        flex-shrink: 0;
+        margin-top: 2px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.22);
+      }
+      .mail-unread-dot {
+        display: inline-block;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        flex-shrink: 0;
+      }
+      .mail-top { font-size: 13px; }
+      .mail-from {
+        max-width: none;
+        flex: 1;
+        font-weight: 600;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .mail-item:not(.unread) .mail-from { font-weight: 500; color: var(--muted); }
+      .mail-subject {
+        font-size: 15px;
+        line-height: 1.35;
+        white-space: nowrap;
+      }
+      .mail-snippet {
+        font-size: 13px;
+        line-height: 1.4;
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+      }
+
+      /* Mobile Email Detail Sticky Back Header */
+      .mobile-back-bar {
+        display: flex;
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        padding: calc(10px + var(--safe-top)) 12px 10px;
+        background: var(--bg-glass);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border-bottom: 1px solid var(--border);
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .mobile-back-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 6px 12px;
+        font-weight: 600;
+        font-size: 14px;
+        background: var(--bg);
+      }
+      .mobile-detail-quick {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .mobile-detail-body {
+        padding: 12px 14px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        flex: 1;
+      }
+      .layout[data-view="inbox"][data-mobile-screen="detail"] .detail-actions-desktop {
+        display: none;
+      }
+      .detail-sub-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+      .detail-sub-actions button {
+        font-size: 13px;
+        min-height: 36px;
+        padding: 6px 12px;
+      }
+      .card {
+        border-radius: 14px;
+        padding: 14px;
+        margin-bottom: 12px;
+      }
+      .card h2 { font-size: 16px; line-height: 1.35; }
+      .detail-meta { font-size: 12.5px; word-break: break-all; }
+      .att-chip {
+        padding: 9px 12px;
+        border-radius: 10px;
+        font-size: 13px;
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .email-frame {
+        min-height: 58dvh;
+        border-radius: 12px;
+      }
+      .email-text {
+        font-size: 15px;
+        line-height: 1.65;
+        border-radius: 12px;
+        padding: 14px;
+      }
+
+      /* Mobile Form & Rules Stacking */
       .grid-2 { grid-template-columns: 1fr; }
+      .rule-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        padding: 12px 0;
+      }
+      .rule-row > .row {
+        justify-content: flex-end;
+        flex-wrap: wrap;
+      }
+      .card .row {
+        flex-wrap: wrap;
+      }
+      .card .row > input {
+        flex: 1 1 200px;
+      }
+      .verify-banner .row {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .verify-banner a,
+      .verify-banner button {
+        width: 100%;
+        text-align: center;
+      }
+
+      /* Sticky Native Bottom Tab Bar */
+      .mobile-bottom-nav {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 35;
+        background: var(--bg-glass);
+        backdrop-filter: blur(16px);
+        -webkit-backdrop-filter: blur(16px);
+        border-top: 1px solid var(--border);
+        padding: 6px 8px calc(8px + var(--safe-bottom));
+        gap: 4px;
+      }
+      .layout[data-view="inbox"][data-mobile-screen="detail"] .mobile-bottom-nav {
+        display: none;
+      }
+      .tab-btn {
+        border: none;
+        background: transparent;
+        min-height: 48px;
+        padding: 4px 2px;
+        border-radius: 12px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 2px;
+        color: var(--muted);
+        position: relative;
+      }
+      .tab-btn:hover { background: transparent; }
+      .tab-btn.active {
+        color: var(--accent);
+        background: var(--accent-soft);
+        font-weight: 600;
+      }
+      .tab-icon { font-size: 18px; line-height: 1.1; }
+      .tab-label { font-size: 11px; line-height: 1.1; }
+      .tab-badge {
+        position: absolute;
+        top: 3px;
+        right: calc(50% - 22px);
+        min-width: 17px;
+        height: 17px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: var(--gmail);
+        color: #fff;
+        font-size: 10px;
+        font-weight: 700;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
     }
   </style>
 </head>
@@ -326,7 +784,8 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       blockRules: [],
       forwardRules: [],
       settings: null,
-      mobileNavOpen: false
+      mobileNavOpen: false,
+      mobileScreen: "list" // "list" | "detail" (used on <= 960px)
     };
 
     const $ = (sel) => document.querySelector(sel);
@@ -336,6 +795,10 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       .replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;")
       .replace(/'/g, "&#39;");
+
+    function isMobileViewport() {
+      return window.matchMedia && window.matchMedia("(max-width: 960px)").matches;
+    }
 
     async function api(path, opts = {}) {
       const headers = { "X-Requested-With": "GmailAssistant", ...(opts.headers || {}) };
@@ -357,10 +820,46 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
     }
 
+    function fmtShortTime(ts) {
+      if (!ts) return "";
+      const d = new Date(ts);
+      const now = new Date();
+      const pad = (n) => String(n).padStart(2, "0");
+      if (d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth() && d.getDate() === now.getDate()) {
+        return pad(d.getHours()) + ":" + pad(d.getMinutes());
+      }
+      return pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+    }
+
     function fmtBytes(bytes) {
       if (bytes < 1024) return bytes + " B";
       if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
       return (bytes / (1024 * 1024)).toFixed(2) + " MB";
+    }
+
+    function getAvatarMeta(nameOrEmail) {
+      const text = String(nameOrEmail || "?").trim();
+      const ch = Array.from(text.replace(/^["'<]+/, ""))[0] || "?";
+      let hash = 0;
+      for (let i = 0; i < text.length; i++) {
+        hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+      }
+      return {
+        letter: ch.toUpperCase(),
+        colorClass: "av-" + (hash % 6)
+      };
+    }
+
+    function getMobileViewTitle() {
+      if (state.view === "providers") return "Gmail 转发配置";
+      if (state.view === "rules") return "拦截与推送规则";
+      if (state.view === "settings") return "设置与清理";
+      return state.status?.appTitle || "Gmail 助手";
+    }
+
+    function syncThemeColor(theme) {
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute("content", theme === "light" ? "#f6f8fa" : "#0d1117");
     }
 
     function toggleTheme() {
@@ -368,17 +867,33 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       const next = cur === "dark" ? "light" : "dark";
       document.documentElement.setAttribute("data-theme", next);
       localStorage.setItem("gmail_postman_theme", next);
+      syncThemeColor(next);
     }
 
     function buildSafeSrcdoc(rawHtml, allowRemote) {
       const csp = allowRemote
         ? "default-src 'none'; style-src 'unsafe-inline'; img-src https: data:;"
         : "default-src 'none'; style-src 'unsafe-inline'; img-src data:;";
-      return '<meta http-equiv="Content-Security-Policy" content="' + csp + '">' + rawHtml;
+      const responsiveHead =
+        '<meta name="viewport" content="width=device-width, initial-scale=1.0">' +
+        '<meta http-equiv="Content-Security-Policy" content="' + csp + '">' +
+        '<style>html,body{margin:0;padding:12px;max-width:100%!important;overflow-x:auto;word-break:break-word;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC",sans-serif;font-size:15px;line-height:1.6;color:#1f2328;}img,table,pre,blockquote{max-width:100%!important;height:auto!important;box-sizing:border-box;}</style>';
+      return responsiveHead + rawHtml;
     }
 
     const savedTheme = localStorage.getItem("gmail_postman_theme");
-    if (savedTheme) document.documentElement.setAttribute("data-theme", savedTheme);
+    if (savedTheme) {
+      document.documentElement.setAttribute("data-theme", savedTheme);
+      syncThemeColor(savedTheme);
+    }
+
+    // Support native browser swipe-back on mobile email detail screen
+    window.addEventListener("popstate", () => {
+      if (state.view === "inbox" && state.mobileScreen === "detail") {
+        state.mobileScreen = "list";
+        renderApp();
+      }
+    });
 
     async function bootstrap() {
       state.status = await api("/api/status");
@@ -473,9 +988,17 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
     }
 
     async function openEmail(id) {
+      const wasList = state.mobileScreen !== "detail";
       state.selectedId = id;
       state.view = "inbox";
+      state.mobileScreen = "detail";
+      state.mobileNavOpen = false;
       state.allowRemoteImages = false;
+      if (isMobileViewport() && wasList) {
+        try {
+          window.history.pushState({ mobileDetail: id }, "");
+        } catch {}
+      }
       state.detail = await api("/api/emails/" + encodeURIComponent(id));
       if (state.detail.email && !state.detail.email.is_read) {
         api("/api/emails/" + encodeURIComponent(id) + "/mark", {
@@ -491,12 +1014,17 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       }
       state.bodyMode = state.detail.email.html_body ? "html" : "text";
       renderApp();
+      const pane = $(".main-pane");
+      if (pane) pane.scrollTop = 0;
     }
 
     async function openView(view) {
       state.view = view;
       state.mobileNavOpen = false;
-      if (view === "rules") {
+      if (view === "inbox") {
+        state.mobileScreen = "list";
+        await loadWorkspaceData();
+      } else if (view === "rules") {
         const [b, f] = await Promise.all([api("/api/rules/block"), api("/api/rules/forward")]);
         state.blockRules = b.rules;
         state.forwardRules = f.rules;
@@ -664,68 +1192,104 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       const m = state.detail.email;
       const atts = state.detail.attachments || [];
       const safeVerifyUrl = /^https:\\/\\//i.test(m.verification_url || "") ? m.verification_url : "";
+      const hasSubControls = (m.html_body && m.text_body) || (state.bodyMode === "html" && m.html_body && !state.allowRemoteImages);
       return \`
-        <div class="detail-actions">
-          <button data-action="mark-email" data-id="\${esc(m.id)}" data-field="is_starred" data-value="\${m.is_starred ? 0 : 1}">\${m.is_starred ? '⭐ 已星标' : '☆ 星标'}</button>
-          <button data-action="mark-email" data-id="\${esc(m.id)}" data-field="is_important" data-value="\${m.is_important ? 0 : 1}">\${m.is_important ? '🔥 重要' : '标记重要'}</button>
-          <button data-action="mark-email" data-id="\${esc(m.id)}" data-field="is_read" data-value="\${m.is_read ? 0 : 1}">\${m.is_read ? '标为未读' : '标为已读'}</button>
-          \${m.html_body && m.text_body ? \`<button data-action="switch-body-mode">\${state.bodyMode === 'html' ? '切换纯文本' : '切换 HTML'}</button>\` : ''}
-          \${state.bodyMode === 'html' && m.html_body && !state.allowRemoteImages ? '<button data-action="allow-remote-images">🖼️ 加载远程图片</button>' : ''}
-          <button class="danger" data-action="delete-email" data-id="\${esc(m.id)}">🗑️ 删除</button>
+        <div class="mobile-back-bar">
+          <button class="mobile-back-btn" data-action="mobile-back">← 返回</button>
+          <div class="mobile-detail-quick">
+            <button class="icon-btn" title="星标" data-action="mark-email" data-id="\${esc(m.id)}" data-field="is_starred" data-value="\${m.is_starred ? 0 : 1}">\${m.is_starred ? '⭐' : '☆'}</button>
+            <button class="icon-btn" title="重要" data-action="mark-email" data-id="\${esc(m.id)}" data-field="is_important" data-value="\${m.is_important ? 0 : 1}">\${m.is_important ? '🔥' : '🏷️'}</button>
+            <button class="icon-btn" title="\${m.is_read ? '标为未读' : '标为已读'}" data-action="mark-email" data-id="\${esc(m.id)}" data-field="is_read" data-value="\${m.is_read ? 0 : 1}">\${m.is_read ? '📩' : '✅'}</button>
+            <button class="icon-btn danger" title="删除" data-action="delete-email" data-id="\${esc(m.id)}">🗑️</button>
+          </div>
         </div>
 
-        \${m.is_verification ? \`
-          <div class="verify-banner">
-            <strong>🔐 检测到已验签的 Gmail 自动转发确认邮件</strong>
-            \${m.verification_code ? \`<div class="verify-code">确认码：\${esc(m.verification_code)}</div>\` : ''}
-            <div class="row">
-              \${m.verification_code ? \`<button data-action="copy-text" data-copy="\${esc(m.verification_code)}">复制确认码</button>\` : ''}
-              \${safeVerifyUrl ? \`<a href="\${esc(safeVerifyUrl)}" target="_blank" rel="noopener noreferrer"><button class="primary" type="button">打开 Gmail 确认链接</button></a>\` : ''}
-            </div>
+        <div class="mobile-detail-body">
+          <div class="detail-actions detail-actions-desktop">
+            <button data-action="mark-email" data-id="\${esc(m.id)}" data-field="is_starred" data-value="\${m.is_starred ? 0 : 1}">\${m.is_starred ? '⭐ 已星标' : '☆ 星标'}</button>
+            <button data-action="mark-email" data-id="\${esc(m.id)}" data-field="is_important" data-value="\${m.is_important ? 0 : 1}">\${m.is_important ? '🔥 重要' : '标记重要'}</button>
+            <button data-action="mark-email" data-id="\${esc(m.id)}" data-field="is_read" data-value="\${m.is_read ? 0 : 1}">\${m.is_read ? '标为未读' : '标为已读'}</button>
+            \${m.html_body && m.text_body ? \`<button data-action="switch-body-mode">\${state.bodyMode === 'html' ? '切换纯文本' : '切换 HTML'}</button>\` : ''}
+            \${state.bodyMode === 'html' && m.html_body && !state.allowRemoteImages ? '<button data-action="allow-remote-images">🖼️ 加载远程图片</button>' : ''}
+            <button class="danger" data-action="delete-email" data-id="\${esc(m.id)}">🗑️ 删除</button>
           </div>
-        \` : ''}
 
-        <div class="card">
-          <div class="row" style="justify-content:space-between;flex-wrap:wrap">
-            <h2>\${esc(m.subject)}</h2>
-            <span class="badge gmail">\${esc(m.provider.toUpperCase())} · \${esc(m.account_alias)}</span>
-          </div>
-          <div class="detail-meta">
-            <div>发件人：\${esc(m.from_name ? m.from_name + ' <' + m.from_address + '>' : m.from_address)}</div>
-            <div>收件人：\${esc(m.to_address)}</div>
-            <div>时间：\${fmtTime(m.received_at)} · 大小：\${fmtBytes(m.raw_size)}</div>
-          </div>
-          \${atts.length > 0 ? \`
-            <div class="att-list">
-              \${atts.map((a) => a.storage === 'skipped_too_large'
-                ? \`<span class="att-chip" title="超过纯 D1 限制">📎 \${esc(a.filename)} (\${fmtBytes(a.size)} · 需开通 R2)</span>\`
-                : \`<a class="att-chip" href="/api/attachments/\${encodeURIComponent(a.id)}/download">📎 \${esc(a.filename)} (\${fmtBytes(a.size)})</a>\`
-              ).join("")}
+          \${m.is_verification ? \`
+            <div class="verify-banner">
+              <strong>🔐 检测到已验签的 Gmail 自动转发确认邮件</strong>
+              \${m.verification_code ? \`<div class="verify-code">确认码：\${esc(m.verification_code)}</div>\` : ''}
+              <div class="row">
+                \${m.verification_code ? \`<button data-action="copy-text" data-copy="\${esc(m.verification_code)}">复制确认码</button>\` : ''}
+                \${safeVerifyUrl ? \`<a href="\${esc(safeVerifyUrl)}" target="_blank" rel="noopener noreferrer"><button class="primary" type="button">打开 Gmail 确认链接</button></a>\` : ''}
+              </div>
             </div>
           \` : ''}
-        </div>
 
-        \${state.bodyMode === "html" && m.html_body
-          ? \`<iframe class="email-frame" sandbox="" referrerpolicy="no-referrer" srcdoc="\${esc(buildSafeSrcdoc(m.html_body, state.allowRemoteImages))}"></iframe>\`
-          : \`<div class="email-text">\${esc(m.text_body || m.snippet || '(空邮件)')}</div>\`
-        }
+          <div class="card">
+            <div class="row" style="justify-content:space-between;flex-wrap:wrap">
+              <h2>\${esc(m.subject)}</h2>
+              <span class="badge gmail">\${esc(m.provider.toUpperCase())} · \${esc(m.account_alias)}</span>
+            </div>
+            <div class="detail-meta">
+              <div>发件人：\${esc(m.from_name ? m.from_name + ' <' + m.from_address + '>' : m.from_address)}</div>
+              <div>收件人：\${esc(m.to_address)}</div>
+              <div>时间：\${fmtTime(m.received_at)} · 大小：\${fmtBytes(m.raw_size)}</div>
+            </div>
+            \${atts.length > 0 ? \`
+              <div class="att-list">
+                \${atts.map((a) => a.storage === 'skipped_too_large'
+                  ? \`<span class="att-chip" title="超过纯 D1 限制">📎 \${esc(a.filename)} (\${fmtBytes(a.size)} · 需开通 R2)</span>\`
+                  : \`<a class="att-chip" href="/api/attachments/\${encodeURIComponent(a.id)}/download">📎 \${esc(a.filename)} (\${fmtBytes(a.size)})</a>\`
+                ).join("")}
+              </div>
+            \` : ''}
+          </div>
+
+          \${hasSubControls && isMobileViewport() ? \`
+            <div class="detail-sub-actions">
+              \${m.html_body && m.text_body ? \`<button data-action="switch-body-mode">\${state.bodyMode === 'html' ? '📄 切换纯文本' : '🌐 切换 HTML'}</button>\` : ''}
+              \${state.bodyMode === 'html' && m.html_body && !state.allowRemoteImages ? '<button data-action="allow-remote-images">🖼️ 加载远程图片</button>' : ''}
+            </div>
+          \` : ''}
+
+          \${state.bodyMode === "html" && m.html_body
+            ? \`<iframe class="email-frame" sandbox="" referrerpolicy="no-referrer" srcdoc="\${esc(buildSafeSrcdoc(m.html_body, state.allowRemoteImages))}"></iframe>\`
+            : \`<div class="email-text">\${esc(m.text_body || m.snippet || '(空邮件)')}</div>\`
+          }
+        </div>
       \`;
     }
 
     function renderApp() {
+      const mobileSub = state.status.accessUser
+        ? "🛡️ " + state.status.accessUser
+        : (state.unreadCount > 0 ? state.unreadCount + " 封未读" : "Gmail 实时聚合");
+
       $("#app").innerHTML = \`
-        <div class="mobile-bar">
-          <strong>📬 \${esc(state.status.appTitle)}</strong>
-          <div class="row">
-            <button data-action="toggle-theme">🌓</button>
-            <button data-action="toggle-mobile-nav">☰ 菜单</button>
-          </div>
-        </div>
-        <div class="layout">
+        <div class="layout" data-view="\${esc(state.view)}" data-mobile-screen="\${esc(state.mobileScreen)}">
+          <header class="mobile-bar">
+            <div class="mobile-bar-left">
+              <button class="icon-btn" data-action="toggle-mobile-nav" aria-label="打开菜单">☰</button>
+              <div class="mobile-title-wrap">
+                <span class="mobile-title">📬 \${esc(getMobileViewTitle())}</span>
+                <span class="mobile-subtitle">\${esc(mobileSub)}</span>
+              </div>
+            </div>
+            <div class="row">
+              \${state.view === "inbox" ? '<button class="icon-btn" data-action="mobile-refresh" aria-label="刷新">↻</button>' : ''}
+              <button class="icon-btn" data-action="toggle-theme" aria-label="切换主题">🌓</button>
+            </div>
+          </header>
+
+          <div class="mobile-drawer-backdrop \${state.mobileNavOpen ? 'open' : ''}" data-action="close-mobile-nav"></div>
+
           <aside class="sidebar \${state.mobileNavOpen ? 'open' : ''}">
             <div class="brand">
               <span>📬 Gmail 助手</span>
-              <button data-action="toggle-theme" title="切换暗色/亮色模式">🌓</button>
+              <div class="row">
+                <button data-action="toggle-theme" title="切换暗色/亮色模式">🌓</button>
+                <button class="drawer-close-btn" data-action="close-mobile-nav" aria-label="关闭菜单">✕</button>
+              </div>
             </div>
             \${state.status.accessUser ? \`<div class="badge verify" style="text-align:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="Cloudflare Access 零信任已认证">🛡️ \${esc(state.status.accessUser)}</div>\` : ''}
 
@@ -760,23 +1324,55 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
               <input id="search-input" value="\${esc(state.search)}" placeholder="搜索主题、发件人、正文..." />
               <button id="refresh-btn">刷新</button>
             </div>
+            <div class="mobile-filter-pills">
+              <button class="filter-pill \${state.filter==='all' ? 'active' : ''}" data-action="set-filter" data-filter="all">全部 (\${state.total})</button>
+              <button class="filter-pill \${state.filter==='unread' ? 'active' : ''}" data-action="set-filter" data-filter="unread">未读 (\${state.unreadCount})</button>
+              <button class="filter-pill \${state.filter==='starred' ? 'active' : ''}" data-action="set-filter" data-filter="starred">⭐ 星标</button>
+              <button class="filter-pill \${state.filter==='important' ? 'active' : ''}" data-action="set-filter" data-filter="important">🔥 重要</button>
+              <button class="filter-pill \${state.filter==='verification' ? 'active' : ''}" data-action="set-filter" data-filter="verification">🔐 转发确认</button>
+            </div>
             <div class="mail-list">
-              \${state.emails.length === 0 ? '<div class="muted" style="padding:24px;text-align:center">暂无邮件</div>' : state.emails.map((m) => \`
+              \${state.emails.length === 0 ? '<div class="muted" style="padding:36px 20px;text-align:center">暂无邮件</div>' : state.emails.map((m) => {
+                const av = getAvatarMeta(m.from_name || m.from_address);
+                return \`
                 <div class="mail-item \${m.is_read ? '' : 'unread'} \${state.selectedId===m.id ? 'active' : ''}" data-action="open-email" data-id="\${esc(m.id)}">
-                  <div class="mail-top">
-                    <span class="mail-from">\${m.is_starred ? '⭐ ' : ''}\${esc(m.from_name || m.from_address)}</span>
-                    <span>\${fmtTime(m.received_at).slice(5)}</span>
+                  <div class="mail-avatar \${av.colorClass}">\${esc(av.letter)}</div>
+                  <div class="mail-item-content">
+                    <div class="mail-top">
+                      <span class="mail-from">\${m.is_read ? '' : '<span class="mail-unread-dot"></span>'}\${m.is_starred ? '⭐ ' : ''}\${esc(m.from_name || m.from_address)}</span>
+                      <span>\${isMobileViewport() ? fmtShortTime(m.received_at) : fmtTime(m.received_at).slice(5)}</span>
+                    </div>
+                    <div class="mail-subject">\${m.is_verification ? '<span class="badge verify">确认</span> ' : ''}\${esc(m.subject)}</div>
+                    <div class="mail-snippet">\${esc(m.snippet)}</div>
                   </div>
-                  <div class="mail-subject">\${m.is_verification ? '<span class="badge verify">确认</span> ' : ''}\${esc(m.subject)}</div>
-                  <div class="mail-snippet">\${esc(m.snippet)}</div>
-                </div>
-              \`).join("")}
+                </div>\`;
+              }).join("")}
             </div>
           </section>
 
           <main class="main-pane">
             \${renderMainContent()}
           </main>
+
+          <nav class="mobile-bottom-nav" aria-label="移动端导航">
+            <button class="tab-btn \${state.view==='inbox' ? 'active' : ''}" data-action="open-view" data-view="inbox">
+              <span class="tab-icon">📥</span>
+              <span class="tab-label">收件箱</span>
+              \${state.unreadCount > 0 ? \`<span class="tab-badge">\${state.unreadCount > 99 ? '99+' : state.unreadCount}</span>\` : ''}
+            </button>
+            <button class="tab-btn \${state.view==='providers' ? 'active' : ''}" data-action="open-view" data-view="providers">
+              <span class="tab-icon">📮</span>
+              <span class="tab-label">转发</span>
+            </button>
+            <button class="tab-btn \${state.view==='rules' ? 'active' : ''}" data-action="open-view" data-view="rules">
+              <span class="tab-icon">🔀</span>
+              <span class="tab-label">规则</span>
+            </button>
+            <button class="tab-btn \${state.view==='settings' ? 'active' : ''}" data-action="open-view" data-view="settings">
+              <span class="tab-icon">⚙️</span>
+              <span class="tab-label">设置</span>
+            </button>
+          </nav>
         </div>\`;
 
       const searchInput = $("#search-input");
@@ -882,6 +1478,18 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
 
       if (action === "toggle-theme") { toggleTheme(); return; }
       if (action === "toggle-mobile-nav") { state.mobileNavOpen = !state.mobileNavOpen; renderApp(); return; }
+      if (action === "close-mobile-nav") { state.mobileNavOpen = false; renderApp(); return; }
+      if (action === "mobile-back") {
+        state.mobileScreen = "list";
+        renderApp();
+        return;
+      }
+      if (action === "mobile-refresh") {
+        state.search = ($("#search-input")?.value || "").trim();
+        await loadWorkspaceData();
+        renderApp();
+        return;
+      }
       if (action === "copy-text") {
         await navigator.clipboard?.writeText(target.dataset.copy || "");
         target.textContent = "已复制";
@@ -890,6 +1498,7 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       if (action === "set-filter") {
         state.filter = target.dataset.filter || "all";
         state.view = "inbox";
+        state.mobileScreen = "list";
         state.mobileNavOpen = false;
         await loadWorkspaceData();
         renderApp();
@@ -898,6 +1507,7 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       if (action === "set-provider") {
         state.providerFilter = target.dataset.provider || "gmail";
         state.view = "inbox";
+        state.mobileScreen = "list";
         state.mobileNavOpen = false;
         await loadWorkspaceData();
         renderApp();
@@ -922,7 +1532,11 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       if (action === "delete-email") {
         const id = target.dataset.id || "";
         await api("/api/emails/" + encodeURIComponent(id), { method: "DELETE" });
-        if (state.selectedId === id) { state.selectedId = null; state.detail = null; }
+        if (state.selectedId === id) {
+          state.selectedId = null;
+          state.detail = null;
+          state.mobileScreen = "list";
+        }
         await loadWorkspaceData();
         renderApp();
         return;
@@ -964,6 +1578,16 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
           return;
         }
         await bootstrap();
+      }
+    });
+
+    // Only re-render when crossing the 960px desktop/mobile breakpoint (never on mobile keyboard resize)
+    let lastWasMobile = isMobileViewport();
+    window.addEventListener("resize", () => {
+      const nowMobile = isMobileViewport();
+      if (nowMobile !== lastWasMobile) {
+        lastWasMobile = nowMobile;
+        if (state.status?.authenticated) renderApp();
       }
     });
 
