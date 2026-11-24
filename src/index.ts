@@ -391,9 +391,19 @@ app.use("/api/*", async (c, next) => {
 });
 
 app.get("/api/providers", async (c) => {
-  const countsRes = await c.env.DB.prepare(
-    "SELECT provider, COUNT(*) as cnt FROM emails GROUP BY provider"
-  ).all<{ provider: string; cnt: number }>();
+  const [countsRes, aliasRes] = await Promise.all([
+    c.env.DB.prepare("SELECT provider, COUNT(*) as cnt FROM emails GROUP BY provider").all<{
+      provider: string;
+      cnt: number;
+    }>(),
+    c.env.DB.prepare(
+      `SELECT provider, account_alias, COUNT(*) as total,
+              SUM(CASE WHEN is_read = 0 THEN 1 ELSE 0 END) as unread
+       FROM emails
+       GROUP BY provider, account_alias
+       ORDER BY account_alias ASC`
+    ).all<{ provider: string; account_alias: string; total: number; unread: number }>()
+  ]);
 
   const countMap = new Map<string, number>();
   for (const row of countsRes.results) {
@@ -405,13 +415,29 @@ app.get("/api/providers", async (c) => {
     count: countMap.get(p.id) ?? 0
   }));
 
+  const aliases = aliasRes.results.map((row) => {
+    const plusIdx = row.account_alias.indexOf("+");
+    const tag = plusIdx >= 0 && plusIdx < row.account_alias.length - 1 ? row.account_alias.slice(plusIdx + 1) : "";
+    return {
+      provider: row.provider,
+      alias: row.account_alias,
+      tag,
+      label: tag ? `+${tag}` : "默认",
+      total: Number(row.total) || 0,
+      unread: Number(row.unread) || 0
+    };
+  });
+
   const gmailSourceEmail = (await getSetting(c.env, "gmail_source_email")) || "";
-  return c.json({ providers, gmailSourceEmail });
+  return c.json({ providers, aliases, gmailSourceEmail });
 });
 
 app.get("/api/emails", async (c) => {
   const rawProvider = c.req.query("provider") || "gmail";
   const provider = isValidProviderFilter(rawProvider) ? rawProvider : "gmail";
+  const rawAlias = (c.req.query("alias") || "all").trim().toLowerCase();
+  const alias =
+    rawAlias !== "all" && /^[a-z0-9][a-z0-9._+-]{0,99}$/.test(rawAlias) ? rawAlias : "all";
   const filter = c.req.query("filter") || "all";
   const q = (c.req.query("q") || "").trim().slice(0, MAX_SEARCH_QUERY_LEN);
   const page = Math.min(MAX_PAGE_NUM, Math.max(1, Number.parseInt(c.req.query("page") || "1", 10) || 1));
@@ -424,6 +450,10 @@ app.get("/api/emails", async (c) => {
   if (provider !== "all") {
     where.push("provider = ?");
     params.push(provider);
+  }
+  if (alias !== "all") {
+    where.push("account_alias = ?");
+    params.push(alias);
   }
   if (filter === "unread") where.push("is_read = 0");
   else if (filter === "starred") where.push("is_starred = 1");
@@ -454,12 +484,20 @@ app.get("/api/emails", async (c) => {
     .bind(...params)
     .first<{ cnt: number }>();
 
-  const unreadWhere = provider !== "all" ? "WHERE provider = ? AND is_read = 0" : "WHERE is_read = 0";
-  const unreadStmt =
-    provider !== "all"
-      ? c.env.DB.prepare(`SELECT COUNT(*) as cnt FROM emails ${unreadWhere}`).bind(provider)
-      : c.env.DB.prepare(`SELECT COUNT(*) as cnt FROM emails ${unreadWhere}`);
-  const unreadRow = await unreadStmt.first<{ cnt: number }>();
+  const unreadWhereParts: string[] = ["is_read = 0"];
+  const unreadParams: unknown[] = [];
+  if (provider !== "all") {
+    unreadWhereParts.push("provider = ?");
+    unreadParams.push(provider);
+  }
+  if (alias !== "all") {
+    unreadWhereParts.push("account_alias = ?");
+    unreadParams.push(alias);
+  }
+  const unreadWhereSql = `WHERE ${unreadWhereParts.join(" AND ")}`;
+  const unreadRow = await c.env.DB.prepare(`SELECT COUNT(*) as cnt FROM emails ${unreadWhereSql}`)
+    .bind(...unreadParams)
+    .first<{ cnt: number }>();
 
   return c.json({
     emails: listRes.results,

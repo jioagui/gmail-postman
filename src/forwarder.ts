@@ -4,6 +4,7 @@ export interface ForwardNotificationPayload {
   emailId: string;
   provider: string;
   providerName: string;
+  accountAlias?: string;
   fromAddress: string;
   fromName: string;
   toAddress: string;
@@ -209,9 +210,19 @@ function escapeWeComMarkdown(text: string): string {
     .replace(/\r?\n/g, " ");
 }
 
+function formatProviderDisplay(payload: ForwardNotificationPayload): string {
+  const alias = (payload.accountAlias || "").trim();
+  const plusIdx = alias.indexOf("+");
+  if (plusIdx >= 0 && plusIdx < alias.length - 1) {
+    return `${payload.providerName} · ${alias.slice(plusIdx + 1)}`;
+  }
+  return payload.providerName;
+}
+
 function buildPlainMessage(payload: ForwardNotificationPayload): string {
+  const displayProvider = formatProviderDisplay(payload);
   const lines = [
-    payload.isVerification ? "🔐 [Gmail 转发确认邮件]" : `📬 [${payload.providerName}] 新邮件`,
+    payload.isVerification ? `🔐 [${displayProvider} 转发确认邮件]` : `📬 [${displayProvider}] 新邮件`,
     `发件人: ${payload.fromName ? `${payload.fromName} <${payload.fromAddress}>` : payload.fromAddress}`,
     `收件人: ${payload.toAddress}`,
     `主题: ${payload.subject}`
@@ -230,9 +241,10 @@ function buildPlainMessage(payload: ForwardNotificationPayload): string {
 }
 
 function buildWeComMarkdown(payload: ForwardNotificationPayload): string {
+  const displayProvider = formatProviderDisplay(payload);
   const title = payload.isVerification
-    ? "🔐 **Gmail 转发确认邮件**"
-    : `📬 **[${escapeWeComMarkdown(payload.providerName)}] 新邮件**`;
+    ? `🔐 **${escapeWeComMarkdown(displayProvider)} 转发确认邮件**`
+    : `📬 **[${escapeWeComMarkdown(displayProvider)}] 新邮件**`;
   const senderRaw = payload.fromName
     ? `${payload.fromName} <${payload.fromAddress}>`
     : payload.fromAddress;
@@ -336,10 +348,11 @@ export async function dispatchSingleForwardRule(
         headers["Authorization"] = `Bearer ${cfg.token.trim()}`;
       }
 
+      const displayProvider = formatProviderDisplay(payload);
       const title = (
         payload.isVerification
-          ? `[Gmail 转发确认] ${payload.verificationCode || payload.subject}`
-          : `[${payload.providerName}] ${payload.subject}`
+          ? `[${displayProvider} 转发确认] ${payload.verificationCode || payload.subject}`
+          : `[${displayProvider}] ${payload.subject}`
       ).slice(0, 120);
 
       const clickUrl = (payload.isVerification && payload.verificationUrl) || payload.inboxUrl;
@@ -376,7 +389,8 @@ export async function dispatchSingleForwardRule(
       if (!SERVERCHAN_KEY_RE.test(sendKey)) {
         return { ok: false, error: "Invalid Server酱 send_key" };
       }
-      const title = `${payload.isVerification ? "[Gmail转发确认] " : `[${payload.providerName}] `}${payload.subject}`.slice(
+      const displayProvider = formatProviderDisplay(payload);
+      const title = `${payload.isVerification ? `[${displayProvider} 转发确认] ` : `[${displayProvider}] `}${payload.subject}`.slice(
         0,
         100
       );

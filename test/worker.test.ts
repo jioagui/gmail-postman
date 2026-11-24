@@ -991,4 +991,88 @@ describe("Gmail 助手 Worker (Cloudflare Access Zero Trust + Gmail active)", ()
     expect((await callFetch("/api/emails", {}, oldCookie, devEnv)).status).toBe(401);
     expect((await callFetch("/api/emails", {}, newCookie, devEnv)).status).toBe(200);
   });
+
+  it("supports multiple Gmail accounts via + subaddresses with alias filtering and tagged push titles", async () => {
+    const devEnv = localPasswordEnv();
+    const setupRes = await callFetch(
+      "/api/setup",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: "SuperStrongPassword123" })
+      },
+      undefined,
+      devEnv
+    );
+    const cookie = extractCookie(setupRes);
+
+    // Add ntfy rule to verify tagged push titles
+    await callFetch(
+      "/api/rules/forward",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: "手机 ntfy",
+          type: "ntfy",
+          provider: "gmail",
+          config: { server_url: "https://ntfy.sh", topic: "multi-gmail-topic-1" }
+        })
+      },
+      cookie,
+      devEnv
+    );
+
+    const ntfyTitles: string[] = [];
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      new Request(url, init);
+      const parsed = JSON.parse(String(init?.body || "{}")) as { title?: string };
+      if (parsed.title) ntfyTitles.push(parsed.title);
+      return new Response(JSON.stringify({ id: "ok" }), { status: 200 });
+    });
+
+    // Ingest emails to default gmail@, gmail+work@, and gmail+sub@
+    for (const [to, subj] of [
+      ["gmail@example.com", "主号账单"],
+      ["gmail+work@example.com", "工作周报"],
+      ["gmail+sub@example.com", "小号验证码"]
+    ]) {
+      const mail = makeEmailMessage({
+        from: "sender@example.org",
+        to,
+        subject: subj,
+        text: `Content for ${to}`
+      });
+      const ctx = createExecutionContext();
+      await worker.email(mail.msg, devEnv, ctx);
+      await waitOnExecutionContext(ctx);
+    }
+
+    // 1. Push titles carry sub-account tag
+    expect(ntfyTitles).toContain("[Gmail] 主号账单");
+    expect(ntfyTitles).toContain("[Gmail · work] 工作周报");
+    expect(ntfyTitles).toContain("[Gmail · sub] 小号验证码");
+
+    // 2. /api/providers returns discovered aliases with counts
+    const provData = await (await callFetch("/api/providers", {}, cookie, devEnv)).json<{
+      aliases: Array<{ alias: string; label: string; total: number; unread: number }>;
+    }>();
+    expect(provData.aliases.map((a) => a.alias)).toEqual(["gmail", "gmail+sub", "gmail+work"]);
+    expect(provData.aliases.find((a) => a.alias === "gmail+work")?.label).toBe("+work");
+
+    // 3. /api/emails filters cleanly by alias
+    const workOnly = await (
+      await callFetch("/api/emails?provider=gmail&alias=" + encodeURIComponent("gmail+work"), {}, cookie, devEnv)
+    ).json<{ emails: Array<{ account_alias: string; subject: string }>; total: number; unreadCount: number }>();
+    expect(workOnly.total).toBe(1);
+    expect(workOnly.unreadCount).toBe(1);
+    expect(workOnly.emails[0].account_alias).toBe("gmail+work");
+    expect(workOnly.emails[0].subject).toBe("工作周报");
+
+    const allGmail = await (await callFetch("/api/emails?provider=gmail&alias=all", {}, cookie, devEnv)).json<{
+      total: number;
+    }>();
+    expect(allGmail.total).toBe(3);
+  });
 });

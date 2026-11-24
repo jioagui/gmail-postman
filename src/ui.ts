@@ -191,6 +191,32 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
     }
     .badge.gmail { background: rgba(234, 67, 53, 0.16); color: #ff7b72; }
     .badge.verify { background: rgba(63, 185, 80, 0.18); color: var(--success); }
+    .badge.alias { background: rgba(59, 130, 246, 0.15); color: var(--accent); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .nav-sub-item {
+      padding-left: 24px;
+      font-size: 13px;
+      color: var(--muted);
+    }
+    .alias-gen-box {
+      margin-top: 12px;
+      padding: 12px;
+      border-radius: 10px;
+      border: 1px dashed var(--border);
+      background: var(--bg);
+    }
+    .preset-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin: 8px 0;
+    }
+    .preset-chip {
+      padding: 4px 10px;
+      min-height: 28px;
+      font-size: 12px;
+      border-radius: 999px;
+      background: var(--bg-elev);
+    }
     .list-pane {
       border-right: 1px solid var(--border);
       display: flex;
@@ -772,6 +798,7 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       view: "inbox",
       filter: "all",
       providerFilter: "gmail",
+      aliasFilter: "all",
       search: "",
       emails: [],
       total: 0,
@@ -781,6 +808,8 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       bodyMode: "html",
       allowRemoteImages: false,
       providers: [],
+      aliases: [],
+      aliasDraftTag: "work",
       blockRules: [],
       forwardRules: [],
       settings: null,
@@ -850,10 +879,36 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       };
     }
 
+    function extractAliasTag(accountAlias) {
+      const s = String(accountAlias || "");
+      const idx = s.indexOf("+");
+      return idx >= 0 && idx < s.length - 1 ? s.slice(idx + 1) : "";
+    }
+
+    function sanitizeAliasTag(raw) {
+      return String(raw || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]/g, "")
+        .slice(0, 32);
+    }
+
+    function buildTaggedGmailAddress(baseForwardAddress, tag) {
+      const cleanTag = sanitizeAliasTag(tag);
+      const addr = String(baseForwardAddress || "");
+      const atIdx = addr.indexOf("@");
+      if (!cleanTag || atIdx < 0) return addr;
+      return addr.slice(0, atIdx) + "+" + cleanTag + addr.slice(atIdx);
+    }
+
     function getMobileViewTitle() {
       if (state.view === "providers") return "Gmail 转发配置";
       if (state.view === "rules") return "拦截与推送规则";
       if (state.view === "settings") return "设置与清理";
+      if (state.aliasFilter !== "all") {
+        const tag = extractAliasTag(state.aliasFilter);
+        return tag ? "Gmail · +" + tag : "Gmail · 默认";
+      }
       return state.status?.appTitle || "Gmail 助手";
     }
 
@@ -977,11 +1032,13 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
         api("/api/providers"),
         api("/api/emails?" + new URLSearchParams({
           provider: state.providerFilter,
+          alias: state.aliasFilter,
           filter: state.filter,
           q: state.search
         }))
       ]);
       state.providers = provRes.providers;
+      state.aliases = provRes.aliases || [];
       state.emails = mailRes.emails;
       state.total = mailRes.total;
       state.unreadCount = mailRes.unreadCount;
@@ -1033,6 +1090,7 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       } else if (view === "providers") {
         const p = await api("/api/providers");
         state.providers = p.providers;
+        state.aliases = p.aliases || [];
       }
       renderApp();
     }
@@ -1067,7 +1125,9 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
           <div class="card">
             <h2>📮 邮箱转发接入（当前启用 Gmail，其他邮箱已预留）</h2>
             <p class="muted" style="margin-bottom:12px">将 Gmail 自动转发到下方 Cloudflare Email Routing 地址后，邮件会秒级入库并触发实时推送。</p>
-            \${state.providers.map((p) => \`
+            \${state.providers.map((p) => {
+              const generatedSubAddr = p.id === "gmail" ? buildTaggedGmailAddress(p.forwardAddress, state.aliasDraftTag) : "";
+              return \`
               <div class="card" style="margin-bottom:10px;opacity:\${p.enabled ? 1 : 0.65}">
                 <div class="row" style="justify-content:space-between;margin-bottom:6px">
                   <strong>\${esc(p.name)}</strong>
@@ -1078,11 +1138,28 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
                   <input class="mono" readonly value="\${esc(p.forwardAddress)}" />
                   <button data-action="copy-text" data-copy="\${esc(p.forwardAddress)}">复制地址</button>
                 </div>
-                <ol style="padding-left:18px;font-size:13px;color:var(--muted)">
+                \${p.id === "gmail" ? \`
+                  <div class="alias-gen-box">
+                    <div style="font-size:13px;font-weight:600;margin-bottom:4px">🏷️ 多 Gmail 账号专属子地址生成器（方式 2）</div>
+                    <div class="muted" style="margin-bottom:8px">给每个 Gmail 分配不同的 <span class="mono">+标签</span>，零配置自动归类、支持按子账号筛选，且推送通知会自动带上 <span class="mono">[Gmail · 标签]</span>。</div>
+                    <div class="preset-row">
+                      <button class="preset-chip" data-action="pick-alias-tag" data-tag="main">+main (主号)</button>
+                      <button class="preset-chip" data-action="pick-alias-tag" data-tag="work">+work (工作)</button>
+                      <button class="preset-chip" data-action="pick-alias-tag" data-tag="sub">+sub (小号)</button>
+                      <button class="preset-chip" data-action="pick-alias-tag" data-tag="bank">+bank (账单)</button>
+                    </div>
+                    <div class="grid-2" style="margin-bottom:8px">
+                      <input id="alias-tag-input" class="mono" value="\${esc(state.aliasDraftTag)}" placeholder="自定义英文/数字标签，如 work" />
+                      <input id="alias-generated-addr" class="mono" readonly value="\${esc(generatedSubAddr)}" />
+                    </div>
+                    <button id="copy-alias-addr-btn" class="primary" data-action="copy-text" data-copy="\${esc(generatedSubAddr)}">复制子地址：\${esc(generatedSubAddr)}</button>
+                  </div>
+                \` : ''}
+                <ol style="padding-left:18px;font-size:13px;color:var(--muted);margin-top:10px">
                   \${p.setupSteps.map((s) => '<li style="margin-bottom:4px">' + esc(s) + '</li>').join("")}
                 </ol>
-              </div>
-            \`).join("")}
+              </div>\`;
+            }).join("")}
           </div>\`;
       }
 
@@ -1261,6 +1338,7 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
     }
 
     function renderApp() {
+      const gmailAliases = (state.aliases || []).filter((a) => a.provider === "gmail");
       const mobileSub = state.status.accessUser
         ? "🛡️ " + state.status.accessUser
         : (state.unreadCount > 0 ? state.unreadCount + " 封未读" : "Gmail 实时聚合");
@@ -1304,10 +1382,21 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
 
             <div>
               <div class="nav-group-title">邮箱来源</div>
-              \${state.providers.map((p) => p.enabled
-                ? \`<button class="nav-item \${state.providerFilter===p.id ? 'active' : ''}" data-action="set-provider" data-provider="\${esc(p.id)}"><span>● \${esc(p.name)}</span><span class="badge gmail">\${p.count || 0}</span></button>\`
-                : \`<button class="nav-item reserved" disabled title="已预留接口，后续可在 src/providers.ts 启用"><span>○ \${esc(p.name)}</span><span class="badge">预留</span></button>\`
-              ).join("")}
+              \${state.providers.map((p) => {
+                if (!p.enabled) {
+                  return \`<button class="nav-item reserved" disabled title="已预留接口，后续可在 src/providers.ts 启用"><span>○ \${esc(p.name)}</span><span class="badge">预留</span></button>\`;
+                }
+                const subItems = p.id === "gmail" && gmailAliases.length > 0
+                  ? gmailAliases.map((a) => \`
+                      <button class="nav-item nav-sub-item \${state.view==='inbox' && state.providerFilter==='gmail' && state.aliasFilter===a.alias ? 'active' : ''}" data-action="set-alias" data-alias="\${esc(a.alias)}">
+                        <span>↳ \${esc(a.label)}</span>
+                        <span class="badge">\${a.unread > 0 ? a.unread + '/' + a.total : a.total}</span>
+                      </button>\`).join("")
+                  : "";
+                return \`
+                  <button class="nav-item \${state.view==='inbox' && state.providerFilter===p.id && state.aliasFilter==='all' ? 'active' : ''}" data-action="set-provider" data-provider="\${esc(p.id)}"><span>● \${esc(p.name)}</span><span class="badge gmail">\${p.count || 0}</span></button>
+                  \${subItems}\`;
+              }).join("")}
             </div>
 
             <div>
@@ -1330,10 +1419,15 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
               <button class="filter-pill \${state.filter==='starred' ? 'active' : ''}" data-action="set-filter" data-filter="starred">⭐ 星标</button>
               <button class="filter-pill \${state.filter==='important' ? 'active' : ''}" data-action="set-filter" data-filter="important">🔥 重要</button>
               <button class="filter-pill \${state.filter==='verification' ? 'active' : ''}" data-action="set-filter" data-filter="verification">🔐 转发确认</button>
+              \${gmailAliases.length > 1 ? \`
+                <button class="filter-pill \${state.aliasFilter==='all' ? 'active' : ''}" data-action="set-alias" data-alias="all">全部账号</button>
+                \${gmailAliases.map((a) => \`<button class="filter-pill \${state.aliasFilter===a.alias ? 'active' : ''}" data-action="set-alias" data-alias="\${esc(a.alias)}">🏷️ \${esc(a.label)}</button>\`).join("")}
+              \` : ''}
             </div>
             <div class="mail-list">
               \${state.emails.length === 0 ? '<div class="muted" style="padding:36px 20px;text-align:center">暂无邮件</div>' : state.emails.map((m) => {
                 const av = getAvatarMeta(m.from_name || m.from_address);
+                const aliasTag = extractAliasTag(m.account_alias);
                 return \`
                 <div class="mail-item \${m.is_read ? '' : 'unread'} \${state.selectedId===m.id ? 'active' : ''}" data-action="open-email" data-id="\${esc(m.id)}">
                   <div class="mail-avatar \${av.colorClass}">\${esc(av.letter)}</div>
@@ -1342,7 +1436,7 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
                       <span class="mail-from">\${m.is_read ? '' : '<span class="mail-unread-dot"></span>'}\${m.is_starred ? '⭐ ' : ''}\${esc(m.from_name || m.from_address)}</span>
                       <span>\${isMobileViewport() ? fmtShortTime(m.received_at) : fmtTime(m.received_at).slice(5)}</span>
                     </div>
-                    <div class="mail-subject">\${m.is_verification ? '<span class="badge verify">确认</span> ' : ''}\${esc(m.subject)}</div>
+                    <div class="mail-subject">\${aliasTag ? '<span class="badge alias">+' + esc(aliasTag) + '</span> ' : ''}\${m.is_verification ? '<span class="badge verify">确认</span> ' : ''}\${esc(m.subject)}</div>
                     <div class="mail-snippet">\${esc(m.snippet)}</div>
                   </div>
                 </div>\`;
@@ -1392,6 +1486,22 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
           await loadWorkspaceData();
           renderApp();
         });
+      }
+
+      if (state.view === "providers") {
+        const tagInput = $("#alias-tag-input");
+        const genInput = $("#alias-generated-addr");
+        const copyBtn = $("#copy-alias-addr-btn");
+        const gmailProv = state.providers.find((p) => p.id === "gmail");
+        if (tagInput && genInput && copyBtn && gmailProv) {
+          tagInput.addEventListener("input", () => {
+            state.aliasDraftTag = sanitizeAliasTag(tagInput.value);
+            const nextAddr = buildTaggedGmailAddress(gmailProv.forwardAddress, state.aliasDraftTag);
+            genInput.value = nextAddr;
+            copyBtn.dataset.copy = nextAddr;
+            copyBtn.textContent = "复制子地址：" + nextAddr;
+          });
+        }
       }
 
       if (state.view === "rules") {
@@ -1506,10 +1616,26 @@ export function renderAppHtml(appTitle: string, scriptNonce = ""): string {
       }
       if (action === "set-provider") {
         state.providerFilter = target.dataset.provider || "gmail";
+        state.aliasFilter = "all";
         state.view = "inbox";
         state.mobileScreen = "list";
         state.mobileNavOpen = false;
         await loadWorkspaceData();
+        renderApp();
+        return;
+      }
+      if (action === "set-alias") {
+        state.providerFilter = "gmail";
+        state.aliasFilter = target.dataset.alias || "all";
+        state.view = "inbox";
+        state.mobileScreen = "list";
+        state.mobileNavOpen = false;
+        await loadWorkspaceData();
+        renderApp();
+        return;
+      }
+      if (action === "pick-alias-tag") {
+        state.aliasDraftTag = sanitizeAliasTag(target.dataset.tag || "");
         renderApp();
         return;
       }

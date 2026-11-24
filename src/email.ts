@@ -338,6 +338,7 @@ export async function handleInboundEmail(
         emailId,
         provider: match.provider.id,
         providerName: match.provider.name,
+        accountAlias: match.alias,
         fromAddress,
         fromName,
         toAddress: message.to,
